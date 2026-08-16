@@ -1,0 +1,136 @@
+version: "3.9"
+
+# Production-oriented compose file. Differences from docker-compose.dev.yml:
+#   - Postgres/Redis/Neo4j/Qdrant are NOT published to the host — they're
+#     only reachable from other containers on the private `internal` network.
+#   - No default passwords: every credential comes from the environment
+#     (see Backend/.env.example's "Production" section) and the compose file
+#     fails to start rather than silently using a weak default if unset.
+#   - Only the frontend (nginx, port 80/443 behind your TLS terminator) and
+#     the backend's own port (for direct health checks / migrations) are
+#     exposed at all, and the backend port should still normally sit behind
+#     a reverse proxy / load balancer rather than facing the internet raw.
+#
+# If your platform provides managed Postgres/Redis/Neo4j/Qdrant, delete the
+# corresponding service block below and point DATABASE_URL / REDIS_URL /
+# NEO4J_URI / QDRANT_URL (in your env) at the managed instance instead —
+# nothing else needs to change.
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#   docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    networks: [internal]
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"]
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  neo4j:
+    image: neo4j:5-community
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: "${NEO4J_USER:?NEO4J_USER is required}/${NEO4J_PASSWORD:?NEO4J_PASSWORD is required}"
+      NEO4J_PLUGINS: '["apoc"]'
+    networks: [internal]
+    volumes:
+      - neo4j_data:/data
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    networks: [internal]
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  backend:
+    build:
+      context: ./Backend
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
+      QDRANT_URL: http://qdrant:6333
+      NEO4J_URI: bolt://neo4j:7687
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [internal, public]
+    volumes:
+      - upload_data:/data/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: ./Backend
+    restart: unless-stopped
+    command: ["celery", "-A", "app.core.celery_app", "worker", "--loglevel=info"]
+    env_file:
+      - .env.production
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
+      QDRANT_URL: http://qdrant:6333
+      NEO4J_URI: bolt://neo4j:7687
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [internal]
+    volumes:
+      - upload_data:/data/uploads
+
+  frontend:
+    build:
+      context: ./Frontend/app
+    restart: unless-stopped
+    ports:
+      - "80:80"   # put this behind TLS (host reverse proxy / managed LB) for real deployments
+    depends_on: [backend]
+    networks: [public]
+
+networks:
+  internal:
+    internal: true   # no route to the outside world — DB/Redis/Neo4j/Qdrant stay private
+  public: {}
+
+volumes:
+  pg_data:
+  neo4j_data:
+  qdrant_data:
+  upload_data:

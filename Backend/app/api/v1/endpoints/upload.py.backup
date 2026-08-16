@@ -1,0 +1,117 @@
+import os
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.core.security import get_current_user
+from app.db.session import get_db
+from app.models.processing_job import ProcessingJob
+from app.models.upload import Upload, UploadStatus, UploadType
+from app.models.user import User
+from app.schemas.document import UploadCreateResponse, WebsiteIngestRequest
+from app.workers.tasks import process_upload
+
+router = APIRouter(prefix="/upload", tags=["Upload Center"])
+
+EXTENSION_MAP = {
+    ".pdf": UploadType.PDF,
+    ".png": UploadType.IMAGE,
+    ".jpg": UploadType.IMAGE,
+    ".jpeg": UploadType.IMAGE,
+    ".xlsx": UploadType.EXCEL,
+    ".xls": UploadType.EXCEL,
+    ".docx": UploadType.WORD,
+    ".doc": UploadType.WORD,
+}
+MAX_BYTES = settings.MAX_UPLOAD_MB * 1024 * 1024
+
+
+def _resolve_type(filename: str) -> UploadType:
+    ext = os.path.splitext(filename.lower())[1]
+    if ext not in EXTENSION_MAP:
+        raise HTTPException(status_code=400, detail=f"Unsupported file extension: {ext}")
+    return EXTENSION_MAP[ext]
+
+
+async def _create_upload_and_queue(
+    db: AsyncSession,
+    user: User,
+    file_name: str,
+    file_type: UploadType,
+    storage_path: str,
+    file_size: int,
+    source_url: str | None = None,
+) -> UploadCreateResponse:
+    upload = Upload(
+        user_id=user.id,
+        file_name=file_name,
+        file_type=file_type,
+        file_size_bytes=file_size,
+        storage_path=storage_path,
+        source_url=source_url,
+        status=UploadStatus.VALIDATING,
+    )
+    db.add(upload)
+    await db.flush()
+
+    job = ProcessingJob(upload_id=upload.id)
+    db.add(job)
+    await db.commit()
+    await db.refresh(upload)
+    await db.refresh(job)
+
+    result = process_upload.delay(str(upload.id), str(job.id))
+    job.celery_task_id = result.id
+    await db.commit()
+
+    return UploadCreateResponse(
+        id=upload.id,
+        file_name=upload.file_name,
+        file_type=upload.file_type,
+        status=upload.status,
+        processing_job_id=job.id,
+    )
+
+
+@router.post("/file", response_model=UploadCreateResponse)
+async def upload_file(
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    file_type = _resolve_type(file.filename)
+
+    contents = await file.read()
+    if len(contents) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds max upload size")
+
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    unique_name = f"{uuid.uuid4()}_{file.filename}"
+    storage_path = os.path.join(settings.UPLOAD_DIR, unique_name)
+    with open(storage_path, "wb") as f:
+        f.write(contents)
+
+    return await _create_upload_and_queue(
+        db, current_user, file.filename, file_type, storage_path, len(contents)
+    )
+
+
+@router.post("/website", response_model=UploadCreateResponse)
+async def ingest_website(
+    payload: WebsiteIngestRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await _create_upload_and_queue(
+        db,
+        current_user,
+        file_name=payload.url,
+        file_type=UploadType.WEBSITE,
+        storage_path=payload.url,
+        file_size=0,
+        source_url=payload.url,
+    )
+
+

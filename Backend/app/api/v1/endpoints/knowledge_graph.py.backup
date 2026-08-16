@@ -1,0 +1,49 @@
+﻿from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.security import get_current_user
+from app.db.session import get_db
+from app.models.knowledge_graph import KnowledgeGraphEdge, KnowledgeGraphNode
+from app.models.user import User
+from app.services.graph_db_service import GraphDBService
+
+router = APIRouter(prefix="/knowledge-graph", tags=["Knowledge Graph"])
+graph_db = GraphDBService()
+
+
+@router.get("/nodes")
+async def list_nodes(
+    search: str | None = None,
+    label: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    query = select(KnowledgeGraphNode)
+    if search:
+        query = query.where(KnowledgeGraphNode.name.ilike(f"%{search}%"))
+    if label:
+        query = query.where(KnowledgeGraphNode.label == label)
+    nodes = (await db.scalars(query.limit(200))).all()
+    return nodes
+
+
+@router.get("/nodes/{node_id}/expand")
+async def expand_node(
+    node_id: str,
+    depth: int = Query(1, ge=1, le=3),
+    current_user: User = Depends(get_current_user),
+):
+    """Returns the neighborhood subgraph for interactive zoom/expand in the UI."""
+    return await graph_db.get_graph_subview(node_id=node_id, depth=depth)
+
+
+@router.get("/edges")
+async def list_edges(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    edges = (await db.scalars(select(KnowledgeGraphEdge).limit(500))).all()
+    return edges
+
+

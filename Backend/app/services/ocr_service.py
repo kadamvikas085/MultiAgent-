@@ -1,0 +1,397 @@
+"""
+OCR / Document Parsing Service
+-------------------------------
+Handles the "OCR" and "Document Parsing" stages of the pipeline for every
+supported input type:
+  - PDF        -> PyMuPDF for text-native pages, PaddleOCR fallback for scans
+  - Image      -> Qwen2.5-VL for layout-aware image understanding + PaddleOCR
+  - Excel      -> openpyxl -> normalized table rows
+  - Word       -> python-docx -> text + tables
+  - Website    -> HTTP fetch + HTML text extraction
+"""
+
+from dataclasses import dataclass, field
+
+from loguru import logger
+
+
+@dataclass
+class ParsedDocument:
+    raw_text: str
+    tables: list[dict] = field(default_factory=list)
+    layout_metadata: dict = field(default_factory=dict)
+    page_count: int = 1
+    ocr_engine: str = ""
+    ocr_confidence: float = 0.0
+
+
+class OCRService:
+    """Thin orchestration layer; each `_parse_*` method isolates one library
+    so any of them can be swapped without touching the public interface."""
+
+    async def parse(self, file_path: str, file_type: str) -> ParsedDocument:
+        logger.info(f"Parsing {file_path} as {file_type}")
+
+        if file_type == "pdf":
+            return await self._parse_pdf(file_path)
+
+        if file_type == "image":
+            return await self._parse_image(file_path)
+
+        if file_type == "excel":
+            return await self._parse_excel(file_path)
+
+        if file_type == "word":
+            return await self._parse_word(file_path)
+
+        if file_type == "website":
+            return await self._parse_website(file_path)
+
+        raise ValueError(f"Unsupported file_type: {file_type}")
+
+    async def _parse_pdf(self, file_path: str) -> ParsedDocument:
+        import fitz  # PyMuPDF
+
+        doc = fitz.open(file_path)
+
+        try:
+            text_chunks = []
+            needs_ocr_pages = []
+
+            for page_num, page in enumerate(doc):
+                text = page.get_text().strip()
+
+                if text:
+                    text_chunks.append(text)
+                else:
+                    needs_ocr_pages.append(page_num)
+
+            ocr_confidence = 1.0
+
+            if needs_ocr_pages:
+                logger.info(
+                    f"PyMuPDF found no text on {len(needs_ocr_pages)} page(s); "
+                    "falling back to PaddleOCR"
+                )
+
+                ocr_text, ocr_confidence = await self._ocr_pdf_pages(
+                    doc,
+                    needs_ocr_pages,
+                )
+
+                text_chunks.extend(ocr_text)
+
+            return ParsedDocument(
+                raw_text="\n\n".join(text_chunks),
+                page_count=doc.page_count,
+                ocr_engine=(
+                    "paddleocr"
+                    if needs_ocr_pages
+                    else "pymupdf-native"
+                ),
+                ocr_confidence=ocr_confidence,
+            )
+
+        finally:
+            doc.close()
+
+    async def _ocr_pdf_pages(
+        self,
+        doc,
+        page_numbers: list[int],
+    ) -> tuple[list[str], float]:
+        """
+        OCR scanned PDF pages with PaddleOCR.
+
+        PaddleOCR is synchronous and CPU-heavy, so run the actual OCR work
+        in a worker thread instead of blocking the async event loop.
+        """
+        import asyncio
+
+        try:
+            from paddleocr import PaddleOCR
+
+        except Exception as exc:
+            logger.exception("Failed to import PaddleOCR")
+
+            raise RuntimeError(
+                "PaddleOCR could not be imported. Verify paddleocr/"
+                "paddlepaddle compatibility."
+            ) from exc
+
+        def run_ocr():
+            ocr = PaddleOCR(
+                use_angle_cls=True,
+                lang="en",
+                show_log=False,
+            )
+
+            texts = []
+            confidences = []
+
+            for page_num in page_numbers:
+                logger.info(
+                    f"Running PaddleOCR on PDF page {page_num + 1}"
+                )
+
+                # Render PDF page to an image.
+                pix = doc[page_num].get_pixmap(
+                    dpi=300,
+                    alpha=False,
+                )
+
+                img_bytes = pix.tobytes("png")
+
+                # Run PaddleOCR against the PNG bytes.
+                result = ocr.ocr(
+                    img_bytes,
+                    cls=True,
+                )
+
+                logger.info(
+                    f"PaddleOCR returned result for page {page_num + 1}"
+                )
+
+                if not result:
+                    continue
+
+                for line in result:
+                    if not line:
+                        continue
+
+                    for item in line:
+                        if not item or len(item) < 2:
+                            continue
+
+                        text_info = item[1]
+
+                        if not text_info or len(text_info) < 2:
+                            continue
+
+                        text = str(text_info[0]).strip()
+                        confidence = float(text_info[1])
+
+                        if text:
+                            texts.append(text)
+                            confidences.append(confidence)
+
+            avg_confidence = (
+                sum(confidences) / len(confidences)
+                if confidences
+                else 0.0
+            )
+
+            return texts, avg_confidence
+
+        try:
+            texts, avg_confidence = await asyncio.to_thread(
+                run_ocr
+            )
+
+            logger.info(
+                f"PaddleOCR completed successfully: "
+                f"{len(texts)} text segments, "
+                f"confidence={avg_confidence:.3f}"
+            )
+
+            return texts, avg_confidence
+
+        except Exception as exc:
+            logger.exception(
+                f"PaddleOCR failed while processing PDF pages "
+                f"{page_numbers}"
+            )
+
+            raise RuntimeError(
+                f"PaddleOCR failed while processing PDF pages "
+                f"{page_numbers}: {exc}"
+            ) from exc
+
+    async def _parse_image(self, file_path: str) -> ParsedDocument:
+        # Qwen2.5-VL call for layout-aware understanding lives in llm_service
+        # (it's a vision-LLM call, not classic OCR); here we run PaddleOCR
+        # for raw text extraction to feed alongside the VL description.
+        from paddleocr import PaddleOCR
+
+        ocr = PaddleOCR(
+            use_angle_cls=True,
+            lang="en",
+            show_log=False,
+        )
+
+        result = ocr.ocr(
+            file_path,
+            cls=True,
+        )
+
+        texts, confidences = [], []
+
+        for line in result or []:
+            for _, (text, conf) in line:
+                texts.append(text)
+                confidences.append(conf)
+
+        avg_conf = (
+            sum(confidences) / len(confidences)
+            if confidences
+            else 0.0
+        )
+
+        return ParsedDocument(
+            raw_text="\n".join(texts),
+            ocr_engine="paddleocr",
+            ocr_confidence=avg_conf,
+        )
+
+    async def _parse_excel(self, file_path: str) -> ParsedDocument:
+        import openpyxl
+
+        wb = openpyxl.load_workbook(
+            file_path,
+            data_only=True,
+        )
+
+        tables = []
+        text_chunks = []
+
+        for sheet in wb.worksheets:
+            rows = [
+                [cell for cell in row]
+                for row in sheet.iter_rows(values_only=True)
+            ]
+
+            if not rows:
+                continue
+
+            headers, *data_rows = rows
+
+            tables.append(
+                {
+                    "sheet": sheet.title,
+                    "headers": [
+                        str(h) if h is not None else ""
+                        for h in headers
+                    ],
+                    "rows": [list(r) for r in data_rows],
+                }
+            )
+
+            text_chunks.append(
+                f"Sheet: {sheet.title}\n"
+                + "\n".join(str(r) for r in rows)
+            )
+
+        return ParsedDocument(
+            raw_text="\n\n".join(text_chunks),
+            tables=tables,
+            ocr_engine="openpyxl",
+            ocr_confidence=1.0,
+        )
+
+    async def _parse_word(self, file_path: str) -> ParsedDocument:
+        import docx
+
+        d = docx.Document(file_path)
+
+        paragraphs = [
+            p.text
+            for p in d.paragraphs
+            if p.text.strip()
+        ]
+
+        tables = []
+
+        for t in d.tables:
+            rows = [
+                [cell.text for cell in row.cells]
+                for row in t.rows
+            ]
+
+            tables.append(
+                {
+                    "headers": rows[0] if rows else [],
+                    "rows": rows[1:],
+                }
+            )
+
+        return ParsedDocument(
+            raw_text="\n".join(paragraphs),
+            tables=tables,
+            ocr_engine="python-docx",
+            ocr_confidence=1.0,
+        )
+
+    async def _parse_website(self, url: str) -> ParsedDocument:
+        """
+        Fetch and parse a website URL.
+
+        Uses an explicit HTTP request instead of passing the URL directly
+        to Unstructured. The existing ParsedDocument interface is preserved,
+        so the downstream Celery/agent pipeline remains unchanged.
+        """
+        import asyncio
+
+        import httpx
+        from bs4 import BeautifulSoup
+
+        def fetch_and_parse() -> str:
+            with httpx.Client(
+                follow_redirects=True,
+                timeout=20.0,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 Chrome/120 Safari/537.36"
+                    )
+                },
+            ) as client:
+                response = client.get(url)
+                response.raise_for_status()
+
+                soup = BeautifulSoup(
+                    response.text,
+                    "html.parser",
+                )
+
+                # Remove content that is not useful for product extraction.
+                for tag in soup(
+                    [
+                        "script",
+                        "style",
+                        "noscript",
+                        "svg",
+                        "nav",
+                        "footer",
+                    ]
+                ):
+                    tag.decompose()
+
+                return soup.get_text(
+                    separator="\n",
+                    strip=True,
+                )
+
+        try:
+            text = await asyncio.to_thread(
+                fetch_and_parse
+            )
+
+        except httpx.HTTPError as exc:
+            logger.exception(
+                f"Website fetch failed for {url}"
+            )
+
+            raise RuntimeError(
+                f"Failed to fetch website URL: {url}"
+            ) from exc
+
+        if not text.strip():
+            raise ValueError(
+                f"Website returned no readable text: {url}"
+            )
+
+        return ParsedDocument(
+            raw_text=text,
+            ocr_engine="httpx-html",
+            ocr_confidence=1.0,
+        )

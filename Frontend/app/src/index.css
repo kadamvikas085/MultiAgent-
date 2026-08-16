@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+/* Responsive hardening for desktop + tablet + mobile. */
+html {
+  overflow-x: hidden;
+}
+
+body {
+  overflow-x: hidden;
+  background: #09090b;
+}
+
+button,
+input,
+textarea,
+select {
+  max-width: 100%;
+}
+
+@media (max-width: 767px) {
+  html, body, #root {
+    min-height: 100%;
+  }
+
+  body {
+    font-size: 14px;
+  }
+
+  /* Keep long data tables usable without forcing the whole viewport wider. */
+  table {
+    min-width: 640px;
+  }
+
+  /* Give the fixed-height Copilot/pipeline cards room on small screens. */
+  .mobile-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1100px) {
+  /* Prevent dense dashboard cards from becoming unusably narrow. */
+  main {
+    min-width: 0;
+  }
+}
