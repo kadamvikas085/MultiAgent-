@@ -1,348 +1,582 @@
-# UNIhack
+# IntelliSpec — Multi-Agent Product Intelligence Platform
 
-One-line description: A multi-agent document intelligence platform with RAG, knowledge graph, OCR, and human-in-the-loop validation.
+> An AI-powered multi-agent platform for extracting, validating, reasoning over, and organizing product intelligence from heterogeneous technical documents.
 
-![Build Status](https://img.shields.io/badge/build-passing-brightgreen) ![License](https://img.shields.io/badge/license-MIT-blue)
+IntelliSpec transforms unstructured technical documents into structured, evidence-backed product intelligence using OCR, LLMs, RAG, vector search, and knowledge graphs.
 
-## Project Overview
+The platform combines a multi-agent document processing pipeline with confidence-based validation and an interactive web dashboard, enabling users to move from raw documents to searchable and explainable product insights.
 
-UNIhack is an end-to-end platform that ingests documents, extracts structured knowledge, and answers queries using retrieval-augmented generation (RAG), knowledge graph representations, and multi-agent orchestration. It combines OCR, LLMs, vector search, and reasoning agents to enable robust document intelligence workflows.
 
-## Problem Statement
+## Overview
 
-Organizations need reliable, explainable, and auditable systems to extract actionable knowledge from heterogeneous documents (PDFs, images, scanned forms) and serve this knowledge to search, analytics, and downstream automation.
+Technical product information is often distributed across PDFs, specification sheets, catalogs, scanned documents, and other heterogeneous sources.
 
-## Solution
+IntelliSpec automates this process by:
 
-UNIhack provides a modular pipeline: document ingestion → OCR → embedding + vector store → RAG retrieval → multi-agent reasoning and validation → knowledge graph storage and API access. Human-in-the-loop validation and confidence scoring ensure accuracy and auditability.
+- Extracting information from technical documents
+- Structuring product specifications
+- Performing reasoning and validation
+- Assigning confidence scores
+- Routing uncertain results for human review
+- Building a knowledge graph of products and relationships
+- Providing semantic and vector search
+- Generating AI-powered product insights
+- Maintaining source provenance for extracted information
+
+The result is a unified product intelligence system that combines automation, explainability, and human validation.
+
 
 ## Key Features
 
-- Multi-agent orchestration for specialized tasks (extraction, validation, reasoning, recommendations).
-- RAG-based Q&A with vector search for factual grounding.
-- Knowledge graph construction and query interface.
-- Document OCR and vision-language model integration for images.
-- Human-in-the-loop review and confidence scoring.
-- REST API and frontend demo app.
+### Multi-Agent Document Intelligence
 
-## Official Requirements → Implementation Mapping
+A multi-agent pipeline processes uploaded documents through specialized stages:
 
-- Requirement: Document ingestion and OCR → Implementation: `Backend/app/services/ocr_service.py` and `Backend/app/api/v1/endpoints/upload.py` ([link](Backend/app/services/ocr_service.py#L1), [link](Backend/app/api/v1/endpoints/upload.py#L1)).
-- Requirement: Vector search and RAG → Implementation: `Backend/app/services/vector_store_service.py`, `Backend/app/services/llm_service.py` ([link](Backend/app/services/vector_store_service.py#L1), [link](Backend/app/services/llm_service.py#L1)).
-- Requirement: Knowledge graph → Implementation: `Backend/app/services/graph_db_service.py` and `Backend/app/graphs/pipeline_graph.py` ([link](Backend/app/services/graph_db_service.py#L1), [link](Backend/app/graphs/pipeline_graph.py#L1)).
-- Requirement: Multi-agent orchestration → Implementation: `Backend/app/agents/*.py` ([link](Backend/app/agents/__init__.py#L1)).
-- Requirement: Frontend demo → Implementation: `Frontend/app/src/App.jsx` ([link](Frontend/app/src/App.jsx#L1)).
+1. Extraction Agent — extracts structured product information.
+2. Reasoning Agent — interprets and derives meaningful relationships from extracted information.
+3. Validation Agent — checks extracted information and assigns confidence.
+4. Knowledge Graph Agent — converts validated information into graph-based relationships.
+
+Additional agents support capabilities such as:
+
+- Question answering
+- Product recommendations
+- Compliance analysis
+- SEO-oriented product content
+- Product intelligence workflows
+
+
+### Document Processing
+
+Supports processing of heterogeneous technical documents using:
+
+- OCR
+- Text extraction
+- Document parsing
+- Structured information extraction
+- Source-aware processing
+
+Extracted information can include:
+
+- Product name
+- SKU
+- Category
+- Description
+- Technical specifications
+- Applications
+- Technical details
+- Confidence scores
+
+
+### Retrieval-Augmented Generation
+
+IntelliSpec combines structured product data with retrieval mechanisms to provide grounded AI responses.
+
+The system uses:
+
+- Vector embeddings
+- Semantic search
+- Qdrant vector database
+- Retrieved document/product context
+- Source-aware prompting
+
+This allows generated responses to be grounded in available product and document information rather than relying solely on model knowledge.
+
+
+### Knowledge Graph
+
+Validated product information is represented as a graph using Neo4j.
+
+Example relationship structure:
+
+Product
+   |
+   +-- BELONGS_TO --> Category
+   |
+   +-- USED_FOR ----> Application
+
+The platform includes an interactive Knowledge Graph explorer for visualizing product relationships.
+
+
+### AI Copilot
+
+The platform includes a conversational AI Copilot that allows users to ask natural-language questions about product and document information.
+
+The Copilot:
+
+- Uses catalog and document context
+- Provides grounded answers
+- Returns source information
+- Avoids unsupported claims
+- Can indicate uncertainty
+- Keeps API credentials on the backend
+
+Gemini is isolated specifically for the Copilot service.
+
+
+### Confidence-Based Human Review
+
+Not every extracted result should be automatically accepted.
+
+IntelliSpec uses confidence scores to support a human-in-the-loop workflow:
+
+Document
+    |
+    v
+Extraction
+    |
+    v
+Reasoning
+    |
+    v
+Validation
+    |
+    +-- High confidence --> Accepted
+    |
+    +-- Low confidence ---> Human Review Queue
+
 
 ## System Architecture
 
-The system is split into:
-- Frontend: React + Vite demo app (`Frontend/app`).
-- Backend: FastAPI (or similar) app (`Backend/app`).
-- Services: OCR, LLM, Vector Store, Graph DB, Celery workers for async tasks.
-- Storage: Relational DB for metadata, Vector DB for embeddings, Graph DB for knowledge graph.
+                         +---------------------+
+                         |      Frontend       |
+                         |   React Dashboard   |
+                         +----------+----------+
+                                    |
+                                    v
+                         +---------------------+
+                         |      FastAPI        |
+                         |      REST APIs      |
+                         +----------+----------+
+                                    |
+              +---------------------+---------------------+
+              |                     |                     |
+              v                     v                     v
+       +--------------+      +--------------+      +--------------+
+       | Multi-Agent  |      |  AI Copilot  |      | Knowledge    |
+       | Pipeline     |      |   Service    |      | Graph        |
+       +------+-------+      +------+-------+      +------+-------+
+              |                     |                     |
+              v                     v                     v
+       +--------------+      +--------------+      +--------------+
+       | LLM / Mock   |      | Gemini       |      | Neo4j        |
+       | LLM          |      | 2.5 Flash    |      |              |
+       +--------------+      +--------------+      +--------------+
+              |
+              v
+       +--------------+
+       | Qdrant       |
+       | Vector Search|
+       +------+-------+
+              |
+              v
+       +--------------+
+       | PostgreSQL   |
+       | Structured   |
+       | Data         |
+       +--------------+
 
-Refer to `Backend/app/main.py` for the API entrypoint ([link](Backend/app/main.py#L1)).
-
-## Multi-Agent Architecture
-
-Each agent is implemented as a focused component under `Backend/app/agents/`:
-
-- Extraction Agent: extracts entities and structured data from OCR output.
-- Validation Agent: human-in-the-loop and rule-based checks.
-- Reasoning Agent: composes evidence and crafts LLM prompts.
-- Recommendation Agent: suggests actions based on extracted knowledge.
-- SEO / QA / Compliance Agents: domain-specific behaviors.
-
-See `Backend/app/agents` for concrete implementations ([link](Backend/app/agents/__init__.py#L1)).
-
-## Agent Responsibilities
-
-- `extraction_agent.py`: parse text → entities → schema.
-- `validation_agent.py`: check confidence → request human review.
-- `knowledge_graph_agent.py`: ingest triples into graph DB.
-- `qa_agent.py`: perform RAG retrieval and answer generation.
-- `reasoning_agent.py`: chain-of-thought synthesis for complex queries.
 
 ## Technology Stack
 
-- Backend: Python, FastAPI (or Starlette), Celery.
-- Frontend: React, Vite, Tailwind CSS.
-- LLMs: OpenAI / local LLMs via the `llm_service`.
-- Vector DB: (e.g., FAISS, Milvus, Pinecone) via `vector_store_service`.
-- Graph DB: Neo4j or RDF store via `graph_db_service`.
-- DB: PostgreSQL (SQLAlchemy models in `Backend/app/models`).
-- Containerization: Docker.
+### Frontend
+
+- React
+- Vite
+- JavaScript / JSX
+- Responsive dashboard UI
+
+### Backend
+
+- Python
+- FastAPI
+- SQLAlchemy
+- Pydantic
+- Async programming
+
+### AI / ML
+
+- Large Language Models
+- Gemini
+- OCR
+- RAG
+- Vector embeddings
+- Confidence-based validation
+
+### Databases
+
+- PostgreSQL — structured application data
+- Qdrant — vector search and embeddings
+- Neo4j — knowledge graph
+
+### Background Processing
+
+- Celery
+- Redis
+
+### Infrastructure
+
+- Docker
+- Docker Compose
+- Alembic
+
 
 ## Project Structure
 
-- Backend/
-  - `app/` — application code (agents, api, services, models, schemas)
-  - `alembic/` — DB migrations
-  - `requirements.txt`, `Dockerfile`
-- Frontend/
-  - `app/` — React demo app (`Frontend/app/src/App.jsx`)
+intellispec/
+|
++-- Backend/
+|   +-- app/
+|   |   +-- agents/
+|   |   +-- api/
+|   |   +-- core/
+|   |   +-- db/
+|   |   +-- graphs/
+|   |   +-- models/
+|   |   +-- schemas/
+|   |   +-- services/
+|   |   +-- websocket/
+|   |   +-- workers/
+|   |
+|   +-- alembic/
+|   +-- Dockerfile
+|   +-- requirements.txt
+|
++-- Frontend/
+|   +-- app/
+|       +-- src/
+|       +-- public/
+|       +-- package.json
+|       +-- vite.config.js
+|
++-- docker-compose.dev.yml
++-- docker-compose.prod.yml
++-- .env.production.example
++-- .gitignore
++-- CHANGELOG.md
++-- README.md
 
-See the repository files for details.
 
-## Data Flow / Pipeline
+## Getting Started
 
-1. Upload document via API (`/upload`).
-2. OCR extracts text and layout.
-3. Extraction agent parses entities and schemas.
-4. Generate embeddings and store in vector DB.
-5. Build/augment knowledge graph.
-6. Index metadata in relational DB.
-7. Query path: RAG retrieval → reasoning agent → validation agent → response.
+### Prerequisites
 
-## RAG Implementation
+Make sure the following are installed:
 
-- Retriever: nearest-neighbor search over embeddings (see `vector_store_service.py`).
-- Generator: LLM prompts composed by `llm_service.py` using retrieved passages as context.
-- Answer augmentation: chain-of-evidence from agents and KG.
+- Python 3.11+
+- Node.js 18+
+- npm
+- PostgreSQL
+- Redis
+- Qdrant
+- Neo4j
+- Git
 
-## Knowledge Graph Implementation
+Docker can be used to simplify infrastructure setup.
 
-- Triples generated by `knowledge_graph_agent.py` and persisted via `graph_db_service.py`.
-- Node/edge schema stored in `Backend/app/models/knowledge_graph.py` ([link](Backend/app/models/knowledge_graph.py#L1)).
 
-## Document Intelligence / OCR
+## Backend Setup
 
-- OCR performed by `ocr_service.py`. Supports Tesseract, AWS Textract, or commercial OCR providers via configuration.
-- Layout-aware extraction for tables, fields, and forms.
+Navigate to the backend:
 
-## Vision-Language Model
+    cd Backend
 
-- Integrates optional vision-language models for image understanding and diagram parsing. Hooked into the same `llm_service` abstraction for generation.
+Create a virtual environment:
 
-## Human-in-the-Loop Validation
+    python -m venv venv
 
-- Validation agent flags low-confidence items and routes them to a simple review UI or an audit queue (`audit_log` models and schemas).
+Activate it on Windows:
 
-## Confidence Scoring & Explainability
+    .\venv\Scripts\Activate.ps1
 
-- Confidence scores computed from model logits, retrieval similarity, and rule checks.
-- Audit logs capture agent decisions (`Backend/app/audit_log`).
+Install dependencies:
 
-## Database Architecture
+    pip install -r requirements.txt
 
-- SQLAlchemy models live in `Backend/app/models/` and include `document`, `product`, `user`, `ai_result`, and `knowledge_graph`.
-- Migrations with Alembic (`alembic/`).
+Create your environment file:
 
-## API Documentation
+    Copy-Item .env.example .env
 
-- The backend exposes REST endpoints under `Backend/app/api/v1/` (see `api.py` and `endpoints/`). Example endpoints: upload, search, products, pipeline, validation.
+Update .env with your local configuration.
 
-## Frontend
+NEVER commit the .env file.
 
-- Demo frontend in `Frontend/app/` built with React + Vite. Entry: `Frontend/app/src/App.jsx` ([link](Frontend/app/src/App.jsx#L1)).
+Start the backend:
 
-## Backend
+    uvicorn app.main:app --reload
 
-- Backend app entrypoint: `Backend/app/main.py` ([link](Backend/app/main.py#L1)).
-- Services for embedding, LLM, OCR, and graph operations under `Backend/app/services/`.
+The API will be available at:
+
+    http://localhost:8000
+
+
+## Frontend Setup
+
+Open another terminal:
+
+    cd Frontend/app
+
+Install dependencies:
+
+    npm install
+
+Start the development server:
+
+    npm run dev
+
+The frontend will normally be available at:
+
+    http://localhost:5173
+
+
+## Celery Worker
+
+From the Backend directory:
+
+    celery -A app.core.celery_app.celery_app worker --loglevel=info --pool=solo
+
+Celery uses Redis as the message broker and result backend according to the configured environment variables.
+
+
+## Docker
+
+Development services can be started using:
+
+    docker compose -f docker-compose.dev.yml up --build
+
+To stop the services:
+
+    docker compose -f docker-compose.dev.yml down
+
 
 ## Environment Variables
 
-Required (examples):
+Create a local .env file from:
 
-- `DATABASE_URL` — SQL database connection string.
-- `VECTOR_DB_URL` — vector database connection.
-- `GRAPH_DB_URL` — graph database connection.
-- `OPENAI_API_KEY` — LLM provider key (or other provider creds).
-- `OCR_PROVIDER` — e.g., `tesseract`/`textract`.
+    Backend/.env.example
 
-Store env vars in a `.env` file or your deployment secrets manager.
+For production configuration, refer to:
 
-## Installation
+    .env.production.example
 
-Backend (Python):
+Important security rule:
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r Backend/requirements.txt
-```
+NEVER commit:
 
-Frontend (node):
+- .env
+- API keys
+- Private keys
+- Database passwords
+- Credentials
+- Service-account files
+- Production secrets
 
-```bash
-cd Frontend/app
-npm install
-npm run dev
-```
+The repository includes a .gitignore configured to prevent sensitive and generated files from being committed.
 
-## Running the Project
 
-- Start backend (example):
+## AI Configuration
 
-```powershell
-uvicorn Backend.app.main:app --reload --host 0.0.0.0 --port 8000
-```
+### Main AI Pipeline
 
-- Start workers (example):
+The main document-processing pipeline can run using the mock LLM service for development and testing:
 
-```powershell
-celery -A Backend.app.core.celery_app worker --loglevel=info
-```
+    USE_MOCK_LLM=true
 
-## Docker / Infrastructure
+This allows the pipeline to run without consuming external LLM API usage.
 
-- A `Backend/Dockerfile` is included for containerizing the backend. Use `docker-compose` to wire DBs and vector/graph services.
+### AI Copilot
 
-## Example Workflow
+The AI Copilot uses Gemini independently from the main pipeline.
 
-1. User uploads a PDF to `/api/v1/upload`.
-2. OCR service extracts text and returns structured result.
-3. Extraction agent produces entities and triples.
-4. Embeddings are generated and stored.
-5. Knowledge graph is updated and available for queries.
-6. User queries via `/api/v1/search`; QA agent runs RAG and returns an answer with provenance.
+Example configuration:
 
-## Example Output
+    GEMINI_API_KEY=your_key_here
+    GEMINI_MODEL=gemini-2.5-flash
 
-- Returned JSON includes: `answer`, `sources` (IDs and snippets), `confidence`, `explainability` (agent traces), and `audit_id` for human review.
+The real API key should only exist in the local or deployed environment.
 
-## Evaluation Metrics
+Never place the Gemini API key in frontend source code or commit it to Git.
 
-- OCR accuracy (CER/WER), extraction precision/recall, retrieval MRR/Recall@k, answer factuality (human eval), validation throughput, and system latency.
+
+## API
+
+The backend exposes REST APIs for capabilities including:
+
+- Authentication
+- Document processing
+- Product management
+- Analytics
+- AI Copilot
+- Knowledge Graph
+- Audit information
+- Export workflows
+
+Interactive API documentation is available through FastAPI's generated documentation when running in development mode.
+
+
+## Knowledge Graph
+
+The Knowledge Graph Explorer reads product relationships from Neo4j.
+
+Example:
+
+Product
+   |
+   +-- BELONGS_TO --> Industrial Components
+   |
+   +-- USED_FOR ----> General Industrial Use
+
+The frontend provides interactive graph exploration with:
+
+- Node visualization
+- Relationship visualization
+- Hover and focus interactions
+- Zoom
+- Pan
+- Node details
+- Relationship information
+
+
+## Human Review Workflow
+
+Confidence scores are used to determine whether extracted information requires additional review.
+
+                  Technical Document
+                         |
+                         v
+                    OCR / Parsing
+                         |
+                         v
+                    Extraction
+                         |
+                         v
+                     Reasoning
+                         |
+                         v
+                    Validation
+                         |
+                +--------+--------+
+                |                 |
+         High Confidence    Low Confidence
+                |                 |
+                v                 v
+             Accepted         Review Queue
+                |                 |
+                +--------+--------+
+                         |
+                         v
+                  Knowledge Graph
+
 
 ## Security
 
-- Secrets via env vars or secret manager; restrict access to APIs; validate and sanitize uploaded files; audit logging for sensitive operations.
+Security considerations include:
 
-## Scalability
+- Environment-based secret management
+- No API keys in frontend code
+- .env excluded through .gitignore
+- Separate configuration for development and production
+- Authentication-protected APIs
+- Backend-only access to external LLM credentials
 
-- Scale vector DB and graph DB horizontally; run multiple worker replicas; use async processing and batching for embeddings/OCR.
+Never expose API keys in:
 
-## Limitations
+- Source code
+- Git history
+- Screenshots
+- Documentation
+- Public repositories
 
-- LLM hallucinations require careful prompt engineering and validation.
-- OCR quality depends on source image quality.
 
-## Future Enhancements
+## Development
 
-- Add more prebuilt connectors for enterprise services.
-- Improve active learning loop for validation.
-- Add role-based access and fine-grained provenance UI.
+Run frontend and backend separately during development.
 
-## Screenshots
+### Backend
 
-Add UI screenshots under `docs/screenshots/` and reference them here.
+    cd Backend
+    uvicorn app.main:app --reload
 
-## Contributors
+### Frontend
 
-- See the git history. Key modules: `Backend/app/agents`, `Backend/app/services`, `Frontend/app/src`.
+    cd Frontend/app
+    npm run dev
+
+### Celery
+
+    cd Backend
+    celery -A app.core.celery_app.celery_app worker --loglevel=info --pool=solo
+
+
+## Production Considerations
+
+Before deploying publicly:
+
+- Use strong production secrets
+- Use managed/private databases
+- Configure production CORS origins
+- Disable development debugging
+- Store API keys in a secure secret manager
+- Configure HTTPS
+- Restrict database access
+- Configure Redis securely
+- Monitor API and worker usage
+- Review authentication and authorization
+- Review uploaded document handling
+
+
+## Project Highlights
+
+- Multi-agent AI document processing
+- OCR-based document understanding
+- Structured product information extraction
+- Retrieval-Augmented Generation
+- Vector search with Qdrant
+- Knowledge Graph construction with Neo4j
+- FastAPI REST APIs
+- PostgreSQL-backed application data
+- Celery + Redis background processing
+- Confidence-based human review
+- Source-aware AI responses
+- Interactive React dashboard
+- Dedicated Gemini AI Copilot
+- Docker-based infrastructure
+
+
+## Future Improvements
+
+Potential future enhancements include:
+
+- Advanced document chunking and retrieval
+- Improved citation-level provenance
+- More sophisticated graph reasoning
+- Automated evaluation of extraction quality
+- Model observability and tracing
+- Role-based access control
+- Cloud-native deployment
+- Scalable document processing
+- Improved mobile experience
+- Expanded automated test coverage
+
+
+## Author
+
+Vikas Kadam
+
+B.Tech — Computer Science Engineering
+
+Interests:
+
+- Full-Stack Development
+- Artificial Intelligence
+- Machine Learning
+- Multi-Agent Systems
+- RAG
+- Knowledge Graphs
+
 
 ## License
 
-This project is licensed under the MIT License. See `LICENSE`.
+This project is currently intended as a portfolio/prototype project.
 
-
-## Windows local runbook (recommended)
-
-### 1. Start all infrastructure
-
-From the repository root:
-
-```powershell
-docker compose -f docker-compose.dev.yml up -d
-docker ps
-```
-
-The pipeline needs PostgreSQL and Redis for upload/job processing, plus Qdrant and Neo4j for the RAG/knowledge-graph stages.
-
-### 2. Configure Backend/.env
-
-Copy `.env.example` to `.env` and set a real `OPENAI_API_KEY`.
-
-Never commit the real key or include it in a ZIP. Use `.env.example` for distribution.
-
-### 3. Install Python dependencies
-
-```powershell
-cd Backend
-.\venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m pip check
-```
-
-PaddleOCR is pinned to a compatible protobuf version:
-
-```text
-protobuf==3.20.3
-```
-
-Verify OCR before uploading anything:
-
-```powershell
-python -c "import google.protobuf; print(google.protobuf.__version__)"
-python -c "from paddleocr import PaddleOCR; print('PaddleOCR import OK'); PaddleOCR(use_angle_cls=True, lang='en', show_log=False); print('PaddleOCR initialized OK')"
-```
-
-### 4. Run the API
-
-```powershell
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-### 5. Run Celery on Windows
-
-Open a second PowerShell window:
-
-```powershell
-cd "C:\IMPStudy\intellispec\Backend"
-.\venv\Scripts\Activate.ps1
-celery -A app.core.celery_app.celery_app worker --loglevel=info --pool=solo
-```
-
-The worker should finish with:
-
-```text
-celery@... ready.
-```
-
-### 6. Run the frontend
-
-Open a third PowerShell window:
-
-```powershell
-cd "C:\IMPStudy\intellispec\Frontend\app"
-npm install
-npm run dev
-```
-
-Vite may select 5174 if 5173 is already occupied; the frontend proxy works with both ports.
-
-### 7. OCR test
-
-Use an image-only/scanned PDF. A text-native PDF will intentionally use the faster PyMuPDF path and will not invoke PaddleOCR.
-
-Expected sequence:
-
-```text
-Upload
-→ processing_jobs row
-→ Celery process_upload
-→ OCR RUNNING
-→ PaddleOCR fallback (for image-only PDF)
-→ OCR SUCCEEDED
-→ Document Parsing
-→ Extraction
-→ Validation
-→ RAG / Reasoning
-→ Knowledge Graph
-→ Generation / Enrichment
-→ Confidence Scoring
-→ Human Review or Completed
-```
-
-### Troubleshooting
-
-- `ModuleNotFoundError: pyotp`: activate the Backend virtual environment and install `requirements.txt`.
-- `Descriptors cannot be created directly`: reinstall/pin `protobuf==3.20.3`.
-- `PermissionError [WinError 5]` from billiard/Celery: stop old workers and use `--pool=solo`.
-- `No module named package.json`: run npm commands from `Frontend\app`, not `Frontend`.
-- Pipeline fails at RAG: verify Qdrant is running on port 6333.
-- Pipeline fails at Knowledge Graph: verify Neo4j is running on port 7687 and credentials match `.env`.
-- Pipeline fails at an AI stage with a missing-key error: set `OPENAI_API_KEY` in `Backend/.env`.
-- The API now persists the actual failed pipeline stage and error message instead of always labeling failures as OCR.
+Add an explicit open-source license if you decide to release the source under one.
